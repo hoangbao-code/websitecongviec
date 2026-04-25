@@ -1,0 +1,96 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Data Protection
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitives
+    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function existing() { return resource.data; }
+    function incoming() { return request.resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Is valid User
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt']) && 
+             data.keys().size() == 3 &&
+             data.email is string && data.email.size() <= 200 &&
+             (data.role == 'student' || data.role == 'admin') &&
+             data.createdAt is number;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      // Only admins can list users
+      allow list: if isAdmin();
+      
+      // User can create their profile.
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
+                       (
+                         (request.auth.uid == userId && incoming().email == request.auth.token.email &&
+                         (incoming().role == 'student' || (incoming().role == 'admin' && request.auth.token.email == 'dinhthilieu001011969@gmail.com'))) ||
+                         isAdmin()
+                       );
+
+      // Update: Admin can update role, User cannot update their own role.
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
+        (
+          isAdmin() ||
+          (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['email'])) // Example: user can only update their email? Let's just lock it or let them.
+        ) && incoming().createdAt == existing().createdAt;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['userId', 'courseId', 'status', 'transactionRef', 'createdAt', 'updatedAt']) &&
+             data.keys().hasAny(['userId', 'courseId', 'status', 'transactionRef', 'createdAt', 'updatedAt', 'userEmail', 'courseTitle']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.courseId is string && data.courseId.size() <= 128 &&
+             (data.status == 'pending' || data.status == 'active') &&
+             data.transactionRef is string && data.transactionRef.size() <= 200 &&
+             data.createdAt is number && data.updatedAt is number;
+    }
+
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && isValidId(orderId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+
+      allow create: if isSignedIn() && isValidOrder(incoming()) &&
+                       (incoming().userId == request.auth.uid || isAdmin()) &&
+                       exists(/databases/$(database)/documents/users/$(incoming().userId)) &&
+                       incoming().createdAt == request.time.toMillis() &&
+                       incoming().updatedAt == request.time.toMillis();
+
+      // Only admins can update to active manually
+      allow update: if isSignedIn() && isValidId(orderId) && isValidOrder(incoming()) &&
+        (
+          isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().updatedAt == request.time.toMillis()
+        ) && incoming().userId == existing().userId && incoming().courseId == existing().courseId && incoming().createdAt == existing().createdAt;
+    }
+
+    function isValidActivationCode(data) {
+      return data.keys().hasAll(['code', 'courseId', 'isUsed', 'createdAt']) &&
+             data.keys().hasAny(['code', 'courseId', 'isUsed', 'createdAt', 'usedBy', 'usedAt']) &&
+             data.code is string && data.code.size() <= 50 &&
+             data.courseId is string && data.courseId.size() <= 128 &&
+             data.isUsed is bool &&
+             data.createdAt is number;
+    }
+
+    match /activation_codes/{codeId} {
+      allow get: if isSignedIn() && isValidId(codeId);
+      // Let anyone list while querying for specific code (must restrict query)
+      allow list: if isSignedIn(); 
+      allow create: if isAdmin() && isValidActivationCode(incoming());
+      allow update: if isSignedIn() && existing().isUsed == false && incoming().isUsed == true && 
+                       incoming().diff(existing()).affectedKeys().hasOnly(['isUsed', 'usedBy', 'usedAt']) &&
+                       incoming().usedBy == request.auth.uid &&
+                       incoming().usedAt == request.time.toMillis();
+    }
+  }
+}

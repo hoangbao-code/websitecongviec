@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and role",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "createdAt": { "type": "number", "description": "Timestamp" }
+      },
+      "required": ["email", "role", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "User's course purchase",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "courseId": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active"] },
+        "transactionRef": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId", "courseId", "status", "transactionRef", "createdAt", "updatedAt"]
+    },
+    "ActivationCode": {
+      "title": "Activation Code",
+      "description": "Pre-generated code for course access",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "courseId": { "type": "string" },
+        "isUsed": { "type": "boolean" },
+        "createdAt": { "type": "number" },
+        "usedBy": { "type": "string" },
+        "usedAt": { "type": "number" }
+      },
+      "required": ["code", "courseId", "isUsed", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "User profile data"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "Order" },
+      "description": "Course orders/enrollments"
+    },
+    "/activation_codes/{codeId}": {
+      "schema": { "$ref": "ActivationCode" },
+      "description": "Codes to unlock courses"
+    }
+  }
+}
